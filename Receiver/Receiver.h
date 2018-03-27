@@ -27,11 +27,12 @@ typedef struct _ReceiverProperties {
 	bool GotEndFromUser;
 
 	int NumberOfReceivedBytes;
-	int NumberOfWrittenBits;
+	int NumberOfWrittenBytes;
 	int NumberOfErrorsDetected;
 	int NumberOfErrorsCorrected;
 	int NumberOfSpareDataBits;
 	unsigned long long SpareDataBitsForNextChunk;
+	int Counter; // todo remove
 }ReceiverProperties;
 
 ReceiverProperties Receiver;

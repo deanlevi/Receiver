@@ -14,15 +14,14 @@
 #define USER_INPUT_LENGTH 20
 #define CHUNK_SIZE_IN_BYTES 8
 #define NUM_OF_THREADS 2
-#define TIME_OUT_FOR_SELECT 500000
+#define TIME_OUT_FOR_SELECT 200000
 #define NUM_OF_DATA_BITS 49
 #define NUM_OF_ERROR_BITS 15
 #define NUM_OF_DATA_BITS_IN_A_ROW_COLUMN 7
 #define COLUMN_PARITY_OFFSET 7
 #define DATA_TO_WRITE_IN_BYTES 7
 #define DATA_TO_WRITE_IN_BITS 56
-#define NUMBER_OF_BITS_IN_ONE_BYTE 8
-#define MESSAGE_LENGTH 20
+#define MESSAGE_LENGTH 100
 
 /*
 Input: argv - to update input parameters.
@@ -122,9 +121,10 @@ void InitReceiver(char *argv[]) {
 	Receiver.NumberOfErrorsDetected = 0;
 	Receiver.NumberOfErrorsCorrected = 0;
 	Receiver.NumberOfReceivedBytes = 0;
-	Receiver.NumberOfWrittenBits = 0;
+	Receiver.NumberOfWrittenBytes = 0;
 	Receiver.NumberOfSpareDataBits = 0;
 	Receiver.SpareDataBitsForNextChunk = 0;
+	Receiver.Counter = 0; // todo remove
 
 	WSADATA wsaData;
 	int StartupRes = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -234,7 +234,7 @@ void WINAPI ConnectionWithChannelThread() {
 	}
 	SendInformationToChannel();
 	fprintf(stderr, "received: %d bytes\n", Receiver.NumberOfReceivedBytes);
-	fprintf(stderr, "wrote: %d bytes\n", Receiver.NumberOfWrittenBits / NUMBER_OF_BITS_IN_ONE_BYTE);
+	fprintf(stderr, "wrote: %d bytes\n", Receiver.NumberOfWrittenBytes);
 	fprintf(stderr, "detected: %d errors, corrected: %d errors\n", Receiver.NumberOfErrorsDetected, Receiver.NumberOfErrorsCorrected);
 }
 
@@ -253,7 +253,7 @@ void WINAPI UserInterfaceThread() {
 }
 
 void CreateOutputFile() {
-	FILE *OutputFilePointer = fopen(Receiver.OutputFileName, "w");
+	FILE *OutputFilePointer = fopen(Receiver.OutputFileName, "wb");
 	if (OutputFilePointer == NULL) {
 		fprintf(stderr, "CreateOutputFile couldn't open output file.\n");
 		CloseSocketsThreadsAndWsaData();
@@ -306,7 +306,8 @@ void FindAndFixError(unsigned long long *ReceivedBuffer) {
 	}
 	if (NumberOfRowErrors == 1 && NumberOfColumnErrors == 1) { // todo check condition
 		int ErrorBitPosition = IndexOfRowError * COLUMN_PARITY_OFFSET + IndexOfColumnError;
-		unsigned long long FixMask = 1 << ErrorBitPosition;
+		unsigned long long FixMask = 1;
+		FixMask <<= ErrorBitPosition;
 		DataBits = DataBits ^ FixMask;
 		*ReceivedBuffer = DataBits; // no need to add error bits
 		Receiver.NumberOfErrorsCorrected++;
@@ -314,7 +315,7 @@ void FindAndFixError(unsigned long long *ReceivedBuffer) {
 }
 
 void WriteInputToOutputFile(unsigned long long ReceivedBuffer) {
-	FILE *OutputFilePointer = fopen(Receiver.OutputFileName, "a");
+	FILE *OutputFilePointer = fopen(Receiver.OutputFileName, "ab");
 	if (OutputFilePointer == NULL) {
 		fprintf(stderr, "WriteInputToOutputFile couldn't open output file.\n");
 		CloseSocketsThreadsAndWsaData();
@@ -336,13 +337,16 @@ void WriteInputToOutputFile(unsigned long long ReceivedBuffer) {
 	Receiver.SpareDataBitsForNextChunk = DataBits - ((DataBits >> Receiver.NumberOfSpareDataBits) << Receiver.NumberOfSpareDataBits);
 	char *Temp = &DataToWrite;
 	WroteElements = fwrite(&DataToWrite, DATA_TO_WRITE_IN_BYTES, 1, OutputFilePointer);
+	Receiver.Counter++; // todo remove
+	printf("Num of buffer is: %d, Written buffer is: %llu\n", Receiver.Counter, DataToWrite); // todo remove
+
 	if (WroteElements != 1) {
 		fprintf(stderr, "WriteInputToOutputFile error in writing to file.\n");
 		CloseSocketsThreadsAndWsaData();
 		exit(ERROR_CODE);
 	}
 	fclose(OutputFilePointer);
-	Receiver.NumberOfWrittenBits += NUM_OF_DATA_BITS;
+	Receiver.NumberOfWrittenBytes += DATA_TO_WRITE_IN_BYTES;
 }
 
 void HandleReceiveFromChannel() {
@@ -360,7 +364,7 @@ void HandleReceiveFromChannel() {
 
 void SendInformationToChannel() {
 	char MessageToChannel[MESSAGE_LENGTH];
-	sprintf(MessageToChannel, "%d\n%d\n%d\n%d\n", Receiver.NumberOfReceivedBytes, Receiver.NumberOfWrittenBits / NUMBER_OF_BITS_IN_ONE_BYTE,
+	sprintf(MessageToChannel, "%d\n%d\n%d\n%d\n", Receiver.NumberOfReceivedBytes, Receiver.NumberOfWrittenBytes,
 							   Receiver.NumberOfErrorsDetected, Receiver.NumberOfErrorsCorrected);
 	int SentBufferLength = sendto(Receiver.ReceiverSocket, MessageToChannel, strlen(MessageToChannel), SEND_RECEIVE_FLAGS,
 								 (SOCKADDR*)&Receiver.ChannelSocketService, sizeof(Receiver.ChannelSocketService));
